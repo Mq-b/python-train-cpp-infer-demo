@@ -34,6 +34,7 @@ $zipPath = Join-Path $distDir "$packageName.zip"
 $requiredRuntimeDlls = @(
     "onnxruntime.dll",
     "abseil_dll.dll",
+    "re2.dll",
     "libprotobuf-lite.dll",
     "libprotobuf.dll"
 )

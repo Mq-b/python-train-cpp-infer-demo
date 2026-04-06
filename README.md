@@ -95,6 +95,7 @@ cmake --build build
 - `windeployqt` 部署后的 Qt 运行库
 - `onnxruntime*.dll`
 - `abseil_dll.dll`
+- `re2.dll`
 - `libprotobuf-lite.dll`
 - `libprotobuf.dll`
 - `README.md`
