@@ -94,6 +94,7 @@ cmake --build build
 - `YOLOClassifier.exe`
 - `windeployqt` 部署后的 Qt 运行库
 - `onnxruntime*.dll`
+- `abseil_dll.dll`
 - `libprotobuf-lite.dll`
 - `libprotobuf.dll`
 - `README.md`
