@@ -8,7 +8,13 @@
  */
 #include "OnnxClassifier.h"
 
+#if __has_include(<onnxruntime_cxx_api.h>)
 #include <onnxruntime_cxx_api.h>
+#elif __has_include(<onnxruntime/core/session/onnxruntime_cxx_api.h>)
+#include <onnxruntime/core/session/onnxruntime_cxx_api.h>
+#else
+#error "onnxruntime_cxx_api.h not found"
+#endif
 #include <QDebug>
 #include <algorithm>
 #include <array>

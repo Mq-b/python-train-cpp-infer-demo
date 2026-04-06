@@ -84,6 +84,17 @@ jobs:
           "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
 
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/vcpkg/downloads
+            ${{ runner.temp }}/vcpkg/packages
+            ${{ runner.temp }}/vcpkg/installed
+          key: vcpkg-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ hashFiles('.github/workflows/cpp-cmake-ci.yml', 'CMakeLists.txt') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-
+
       - name: Install ONNX Runtime on Windows
         if: runner.os == 'Windows'
         shell: pwsh
