@@ -51,7 +51,13 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build
+          sudo apt-get install -y \
+            ninja-build \
+            autoconf \
+            autoconf-archive \
+            automake \
+            libtool \
+            pkg-config
 
       - name: Setup MSVC
         if: runner.os == 'Windows'
