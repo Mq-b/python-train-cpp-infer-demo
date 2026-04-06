@@ -75,6 +75,32 @@ cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$env:QTDIR"
 cmake --build build
 ```
 
+## CI
+
+仓库已提供一套仅覆盖 **纯 C++ / Qt / ONNX Runtime** 的 GitHub Actions 流水线：
+
+- Windows：Qt `5.12.12` + MSVC + CMake/Ninja 构建
+- Linux：Qt `5.12.12` + GCC + CMake/Ninja 构建
+- Python 训练相关流程当前不进入 CI
+
+触发规则：
+
+- 推送到 `master` / `main` 会自动执行 C++ 构建
+- Pull Request 到 `master` / `main` 会自动执行检查
+- 推送 `v*` 标签时，会额外生成 Windows 发布包并上传到 GitHub Release
+
+发布包内容：
+
+- `YOLOClassifier.exe`
+- `windeployqt` 部署后的 Qt 运行库
+- `onnxruntime*.dll`
+- `README.md`
+- 示例模型 `models/cat_vs_dog/best.onnx`
+
+对应 workflow 文件：
+
+- `.github/workflows/cpp-cmake-ci.yml`
+
 ## 使用
 
 1. 运行程序
@@ -87,14 +113,26 @@ cmake --build build
 
 ## 模型来源
 
-模型由 Python 端训练导出：
+模型由 [`py`](./py/) 目录中的 Python 脚本基于 YOLO 训练的分类模型导出，训练脚本示例：
 
-```python
-from ultralytics import YOLO
+### 系统硬件
 
-model = YOLO("runs/classify/cat_vs_dog/weights/best.pt")
-model.export(format="onnx", imgsz=224)  # 导出到 best.onnx
-```
+| 组件 | 规格 |
+|------|------|
+| CPU | Intel Core i7-13700H (14核20线程) |
+| GPU | NVIDIA GeForce RTX 4060 Laptop GPU |
+| VRAM | 8 GB |
+| 内存 | 32 GB DDR5 5600MHz (16GB x2) |
+| CUDA | 12.6 |
+
+### 软件环境
+
+| 工具 | 版本 |
+|------|------|
+| Python | 3.11.5 |
+| PyTorch | 2.8.0+cu126 |
+| Ultralytics | 8.4.33 |
+| 平台 | Windows 11 |
 
 导出的 `.onnx` 文件即为推理程序所需的模型文件。
 
