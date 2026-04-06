@@ -77,6 +77,15 @@ foreach ($dllName in $requiredRuntimeDlls) {
     Copy-Item -LiteralPath $sourcePath -Destination $packageRoot
 }
 
+$opencvDlls = @(Get-ChildItem -LiteralPath $runtimeBinDir -Filter "opencv*.dll")
+if ($opencvDlls.Count -eq 0) {
+    throw "OpenCV runtime DLLs not found in: $runtimeBinDir"
+}
+
+foreach ($dll in $opencvDlls) {
+    Copy-Item -LiteralPath $dll.FullName -Destination $packageRoot
+}
+
 $windeployqt = Get-Command windeployqt.exe -ErrorAction Stop
 & $windeployqt.Source `
     --release `

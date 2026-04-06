@@ -7,6 +7,7 @@
  *   classify()   -> preprocess() -> Ort::Session::Run() -> 解析输出
  */
 #include "OnnxClassifier.h"
+#include "ImageUtils.h"
 
 #if __has_include(<onnxruntime_cxx_api.h>)
 #include <onnxruntime_cxx_api.h>
@@ -16,6 +17,7 @@
 #error "onnxruntime_cxx_api.h not found"
 #endif
 #include <QDebug>
+#include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -76,7 +78,7 @@ bool OnnxClassifier::loadModel(const QString &modelPath) {
         }
 
         qDebug() << "Input shape:" << dims.join(" x ");
-        qDebug() << "Preprocess mode: resize shortest edge -> center crop -> RGB -> [0,1]";
+        qDebug() << "Preprocess mode: OpenCV decode -> resize shortest edge -> center crop -> RGB -> [0,1]";
 
         m_loaded = true;
         return true;
@@ -94,7 +96,7 @@ void OnnxClassifier::setClassNames(const QStringList &names) {
     m_classNames = names;
 }
 
-OnnxClassifier::Result OnnxClassifier::classify(const QImage &image) {
+OnnxClassifier::Result OnnxClassifier::classify(const QString &imagePath) {
     Result result;
     if (!m_loaded) {
         qWarning() << "Model not loaded";
@@ -103,7 +105,11 @@ OnnxClassifier::Result OnnxClassifier::classify(const QImage &image) {
 
     try {
         // 1. 图像预处理（缩放短边、中心裁剪、转 RGB、[0,1]）
-        auto input = preprocess(image);
+        auto input = preprocess(imagePath);
+        if (input.empty()) {
+            qWarning() << "Failed to preprocess image:" << imagePath;
+            return result;
+        }
 
         // 2. 获取模型输入/输出节点名称
         Ort::AllocatorWithDefaultOptions allocator;
@@ -129,7 +135,7 @@ OnnxClassifier::Result OnnxClassifier::classify(const QImage &image) {
             outputNames, 1
         );
 
-        // 5. 解析输出（Softmax 概率分布）
+        // 5. 解析输出（模型输出的类别概率分布）
         auto outputData = outputTensors[0].GetTensorMutableData<float>();
         auto outputShape = outputTensors[0].GetTensorTypeAndShapeInfo().GetShape();
         int numClasses = static_cast<int>(outputShape[outputShape.size() - 1]);
@@ -168,9 +174,9 @@ OnnxClassifier::Result OnnxClassifier::classify(const QImage &image) {
     }
 }
 
-std::vector<float> OnnxClassifier::preprocess(const QImage &image) {
-    QImage rgb = image.convertToFormat(QImage::Format_RGB32);
-    if (rgb.isNull() || rgb.width() <= 0 || rgb.height() <= 0) {
+std::vector<float> OnnxClassifier::preprocess(const QString &imagePath) {
+    cv::Mat bgr = ImageUtils::loadColorImage(imagePath);
+    if (bgr.empty() || bgr.cols <= 0 || bgr.rows <= 0) {
         return {};
     }
 
@@ -178,34 +184,44 @@ std::vector<float> OnnxClassifier::preprocess(const QImage &image) {
     // 1) 将短边缩放到目标尺寸
     // 2) 从中间裁出目标大小
     const float scale = std::max(
-        static_cast<float>(m_inputWidth) / static_cast<float>(rgb.width()),
-        static_cast<float>(m_inputHeight) / static_cast<float>(rgb.height())
+        static_cast<float>(m_inputWidth) / static_cast<float>(bgr.cols),
+        static_cast<float>(m_inputHeight) / static_cast<float>(bgr.rows)
     );
-    const int resizedWidth = std::max(1, static_cast<int>(std::lround(rgb.width() * scale)));
-    const int resizedHeight = std::max(1, static_cast<int>(std::lround(rgb.height() * scale)));
+    const int resizedWidth = std::max(1, static_cast<int>(std::lround(bgr.cols * scale)));
+    const int resizedHeight = std::max(1, static_cast<int>(std::lround(bgr.rows * scale)));
 
-    QImage resized = rgb.scaled(
-        resizedWidth, resizedHeight, Qt::IgnoreAspectRatio, Qt::SmoothTransformation
+    cv::Mat resized;
+    cv::resize(
+        bgr,
+        resized,
+        cv::Size(resizedWidth, resizedHeight),
+        0.0,
+        0.0,
+        cv::INTER_LINEAR
     );
 
-    const int cropX = std::max(0, (resized.width() - m_inputWidth) / 2);
-    const int cropY = std::max(0, (resized.height() - m_inputHeight) / 2);
-    QImage cropped = resized.copy(cropX, cropY, m_inputWidth, m_inputHeight);
+    const int cropX = std::max(0, (resized.cols - m_inputWidth) / 2);
+    const int cropY = std::max(0, (resized.rows - m_inputHeight) / 2);
+    const cv::Rect roi(cropX, cropY, m_inputWidth, m_inputHeight);
+    cv::Mat cropped = resized(roi);
+
+    cv::Mat rgb;
+    cv::cvtColor(cropped, rgb, cv::COLOR_BGR2RGB);
+
+    cv::Mat normalized;
+    rgb.convertTo(normalized, CV_32FC3, 1.0 / 255.0);
 
     std::vector<float> input(3 * m_inputWidth * m_inputHeight);
+    const int planeSize = m_inputWidth * m_inputHeight;
 
-    // 只做 [0,1] 归一化，不额外做 ImageNet mean/std 标准化。
-    // 这里使用 qRed/qGreen/qBlue 读取像素，避免直接按字节解释 QImage 内存布局带来的通道偏差。
     for (int y = 0; y < m_inputHeight; ++y) {
+        const auto *row = normalized.ptr<cv::Vec3f>(y);
         for (int x = 0; x < m_inputWidth; ++x) {
-            const QRgb pixel = cropped.pixel(x, y);
-            const float r = qRed(pixel) / 255.0f;
-            const float g = qGreen(pixel) / 255.0f;
-            const float b = qBlue(pixel) / 255.0f;
-
-            input[0 * m_inputWidth * m_inputHeight + y * m_inputWidth + x] = r;
-            input[1 * m_inputWidth * m_inputHeight + y * m_inputWidth + x] = g;
-            input[2 * m_inputWidth * m_inputHeight + y * m_inputWidth + x] = b;
+            const cv::Vec3f &pixel = row[x];
+            const int offset = y * m_inputWidth + x;
+            input[0 * planeSize + offset] = pixel[0];
+            input[1 * planeSize + offset] = pixel[1];
+            input[2 * planeSize + offset] = pixel[2];
         }
     }
 

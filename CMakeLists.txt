@@ -13,6 +13,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
 find_package(onnxruntime CONFIG REQUIRED)
+find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgcodecs imgproc)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -20,6 +21,8 @@ set(CMAKE_AUTOUIC ON)
 
 add_executable(${PROJECT_NAME}
     src/main.cpp
+    src/ImageUtils.h
+    src/ImageUtils.cpp
     src/MainWindow.h
     src/MainWindow.cpp
     src/OnnxClassifier.h
@@ -30,6 +33,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt5::Core
     Qt5::Gui
     Qt5::Widgets
+    opencv_core
+    opencv_imgcodecs
+    opencv_imgproc
     onnxruntime::onnxruntime
 )
 

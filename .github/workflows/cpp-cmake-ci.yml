@@ -96,17 +96,21 @@ jobs:
           restore-keys: |
             vcpkg-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-
 
-      - name: Install ONNX Runtime on Windows
+      - name: Install C++ dependencies on Windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "$env:VCPKG_ROOT\vcpkg.exe" install "onnxruntime:${{ matrix.vcpkg_triplet }}"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            "onnxruntime:${{ matrix.vcpkg_triplet }}" `
+            "opencv4:${{ matrix.vcpkg_triplet }}"
 
-      - name: Install ONNX Runtime on Linux
+      - name: Install C++ dependencies on Linux
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          "$VCPKG_ROOT/vcpkg" install "onnxruntime:${{ matrix.vcpkg_triplet }}"
+          "$VCPKG_ROOT/vcpkg" install \
+            "onnxruntime:${{ matrix.vcpkg_triplet }}" \
+            "opencv4:${{ matrix.vcpkg_triplet }}"
 
       - name: Configure on Windows
         if: runner.os == 'Windows'

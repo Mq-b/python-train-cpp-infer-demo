@@ -9,9 +9,9 @@
  *   - 执行推理并显示结果
  */
 #include "MainWindow.h"
+#include "ImageUtils.h"
 #include <QApplication>
 #include <QPixmap>
-#include <QImageReader>
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -20,10 +20,8 @@
 
 namespace {
 
-QImage readImageWithAutoTransform(const QString &path) {
-    QImageReader reader(path);
-    reader.setAutoTransform(true);
-    return reader.read();
+QImage readImageWithOpenCV(const QString &path) {
+    return ImageUtils::toQImage(ImageUtils::loadColorImage(path));
 }
 
 constexpr int kImageIndexRole = Qt::UserRole;
@@ -159,7 +157,7 @@ void MainWindow::selectModel() {
 
 void MainWindow::loadImage() {
     QString path = QFileDialog::getOpenFileName(
-        this, "选择图片", "", "Images (*.png *.jpg *.jpeg *.bmp)"
+        this, "选择图片", "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)"
     );
     if (path.isEmpty()) return;
 
@@ -207,16 +205,16 @@ void MainWindow::runInference() {
         return;
     }
 
-    QImage image = readImageWithAutoTransform(m_imagePaths[m_currentIndex]);
-    if (image.isNull()) {
+    const QString &imagePath = m_imagePaths[m_currentIndex];
+    OnnxClassifier::Result result = m_classifier.classify(imagePath);
+    if (result.allScores.empty()) {
         QMessageBox::warning(this, "警告", "图片格式不支持: " + m_imagePaths[m_currentIndex]);
         return;
     }
 
-    OnnxClassifier::Result result = m_classifier.classify(image);
     displayResult(result);
     setStatusText(QString("状态: 当前图片推理完成 (%1)")
-        .arg(QFileInfo(m_imagePaths[m_currentIndex]).fileName()));
+        .arg(QFileInfo(imagePath).fileName()));
 }
 
 void MainWindow::runBatchInference() {
@@ -242,8 +240,8 @@ void MainWindow::runBatchInference() {
             .arg(m_imagePaths.size())
             .arg(QFileInfo(path).fileName()));
 
-        QImage image = readImageWithAutoTransform(path);
-        if (image.isNull()) {
+        OnnxClassifier::Result result = m_classifier.classify(path);
+        if (result.allScores.empty()) {
             auto *item = new QListWidgetItem(
                 QString("第%1张 | %2 | 读取失败").arg(i + 1).arg(QFileInfo(path).fileName())
             );
@@ -253,7 +251,6 @@ void MainWindow::runBatchInference() {
             continue;
         }
 
-        OnnxClassifier::Result result = m_classifier.classify(image);
         addBatchResultItem(i, path, result);
         okCount++;
 
@@ -294,11 +291,14 @@ void MainWindow::nextImage() {
 void MainWindow::showCurrentImage() {
     if (m_currentIndex < 0 || m_currentIndex >= m_imagePaths.size()) return;
 
-    QPixmap pixmap = QPixmap::fromImage(readImageWithAutoTransform(m_imagePaths[m_currentIndex]));
+    QPixmap pixmap = QPixmap::fromImage(readImageWithOpenCV(m_imagePaths[m_currentIndex]));
     if (!pixmap.isNull()) {
         m_imageLabel->setPixmap(pixmap.scaled(
             m_imageLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation
         ));
+    } else {
+        m_imageLabel->clear();
+        m_imageLabel->setText("图片读取失败");
     }
 
     // 更新图片信息

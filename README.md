@@ -1,6 +1,6 @@
-# YOLO 图像分类推理工具 (C++ / Qt5 / ONNX Runtime)
+# YOLO 图像分类推理工具 (C++ / Qt5 / OpenCV / ONNX Runtime)
 
-基于 ONNX Runtime 的跨平台图像分类推理程序Demo，使用 Qt5 构建图形界面。
+基于 ONNX Runtime 的跨平台图像分类推理程序 Demo，使用 Qt5 构建图形界面，并通过 OpenCV 统一图片解码与预处理。
 
 当前界面支持：
 
@@ -36,8 +36,9 @@ cpp_inference/
 
 | 模块 | 职责 |
 |------|------|
-| `OnnxClassifier` | 封装 ONNX Runtime，负责模型加载、图像预处理、推理执行 |
+| `OnnxClassifier` | 封装 ONNX Runtime，负责模型加载、基于 OpenCV 的图像预处理、推理执行 |
 | `MainWindow` | Qt 图形界面，负责用户交互、图片显示、单张/批量结果展示 |
+| `ImageUtils` | 使用 OpenCV 统一图片解码，并在 OpenCV / Qt 之间转换图像格式 |
 | `main.cpp` | 程序入口，初始化 QApplication |
 
 ### 推理流程
@@ -45,7 +46,7 @@ cpp_inference/
 ```txt
 用户选择图片 → MainWindow::classify()
                   ↓
-            QImage 传入 OnnxClassifier
+            OpenCV 解码原图
                   ↓
             preprocess() → 短边缩放到输入尺寸 → 中心裁剪到输入尺寸 → RGB转换 → /255
                   ↓
@@ -62,6 +63,7 @@ cpp_inference/
 |------|------|------|
 | CMake | ≥ 3.16 | 构建系统 |
 | Qt5 | 5.12+ | GUI 框架 |
+| OpenCV | 4.x | 图像解码、缩放、裁剪 |
 | ONNX Runtime | 1.23+ | 推理引擎 |
 | 编译器 | MSVC / Clang / GCC | C++17 支持 |
 
@@ -77,7 +79,7 @@ cmake --build build
 
 ## CI
 
-仓库已提供一套仅覆盖 **纯 C++ / Qt / ONNX Runtime** 的 GitHub Actions 流水线：
+仓库已提供一套覆盖 **C++ / Qt / OpenCV / ONNX Runtime** 的 GitHub Actions 流水线：
 
 - Windows：Qt `5.12.12` + MSVC + CMake/Ninja 构建
 - Linux：Qt `5.12.12` + GCC + CMake/Ninja 构建
@@ -145,11 +147,12 @@ cmake --build build
 当前 `cpp_inference` 调用这份 Ultralytics 导出的分类 ONNX 之前，按下面的顺序做预处理：
 
 ```txt
-1. 读取原图并转成 RGB888
+1. 用 OpenCV 解码原图
 2. 按比例缩放，使“短边”刚好等于模型输入尺寸
 3. 从缩放后的图像中心裁出 HxW（本项目里是 224x224）
-4. 将像素从 0~255 转成 0~1 的 float
-5. 按 NCHW 布局喂给 ONNX Runtime
+4. 转成 RGB
+5. 将像素从 0~255 转成 0~1 的 float
+6. 按 NCHW 布局喂给 ONNX Runtime
 ```
 
 也就是：
@@ -167,19 +170,34 @@ cmake --build build
 
 ## 与 Python 结果的差异说明
 
-当前版本的目标是让 **预测类别** 与 Python 侧测试结果保持一致。
+当前版本的目标是让 **预测类别** 与 Python 侧测试结果保持一致，并把置信度差异尽量收敛。
+
+需要先明确一点：当前仓库中的 [`py/predict_gui.py`](./py/predict_gui.py) 并不是“手写 OpenCV + ONNX Runtime”的对照脚本，而是通过 Ultralytics 的 `YOLO(...)` 封装来加载模型并执行推理。
+
+这意味着：
+
+- C++ 侧是当前工程自己实现的 `OpenCV 解码 + 预处理 + ONNX Runtime 推理`
+- Python 侧是 `Ultralytics 封装 + 其内部推理流程`
+
+即使 Python 最终对 `.onnx` 也可能落到 ONNX Runtime 后端，前处理、批处理组织、结果封装和显示逻辑仍然不一定与当前 C++ 代码完全一致。
 
 在这个前提下，C++ / Qt / ONNX Runtime 的推理结果可能会出现下面这种情况：
 
 - 最终类别一致
 - 置信度数值与 Python 脚本不是完全相同
 
-这在当前阶段是正常现象，主要原因通常不是模型变了，而是推理前处理还没有做到和 Python 侧 **像素级完全一致**。常见差异来源包括：
+这在当前阶段是正常现象，主要原因通常不是模型变了，而是两边的推理链路没有做到 **完全同一实现**。常见差异来源包括：
 
-1. 图像解码库不同：Python 侧通常使用 PIL / OpenCV，C++ 侧这里使用 Qt 的 `QImageReader`
-2. 缩放插值实现不同：即使都是双线性插值，不同库的边界和取整策略也可能不同
-3. 中心裁剪取整细节不同：奇偶尺寸下，中心点可能相差 1 个像素
-4. EXIF 自动旋转、颜色通道读取、内部像素格式处理存在实现差异
+1. Python 脚本不是直接调用你自己写的 `onnxruntime.InferenceSession(...)`，而是走 Ultralytics 的模型封装
+2. 图像解码库不同：Python 侧通常使用 PIL / OpenCV，旧版 C++ 侧使用 Qt 的 `QImageReader`
+3. 缩放插值实现不同：即使都是双线性插值，不同库的边界和取整策略也可能不同
+4. 中心裁剪取整细节不同：奇偶尺寸下，中心点可能相差 1 个像素
+5. EXIF、颜色通道读取、内部像素格式处理存在实现差异
+6. 输出结果的封装方式不同：Python 侧展示的是 Ultralytics `result.probs.top1conf`，C++ 侧直接读取模型输出 tensor
+
+当前仓库已经改为在 C++ 侧使用 OpenCV 统一图片解码、缩放和裁剪，这会明显缩小和 Python 常见 OpenCV 链路之间的差异。
+
+如果这份分类 ONNX 本身已经输出概率分布，那么 C++ 直接读取输出 tensor 是合理的；但如果你想做“严格对齐”，仍然不能只拿 `predict_gui.py` 的显示结果来判断，需要让 Python 侧也改成同一套 `OpenCV + ONNX Runtime` 推理流程后再比较。
 
 因此，当前项目对“结果正常”的判定标准是：
 
@@ -190,9 +208,10 @@ cmake --build build
 
 如果后续需要把置信度进一步对齐到非常接近 Python，推荐做法是：
 
-1. Python 导出同一张图片的预处理后输入 tensor
-2. C++ 导出同一张图片的预处理后输入 tensor
-3. 对两边 tensor 做逐元素比对，再继续调整缩放、裁剪和读图细节
+1. Python 侧单独写一个 `OpenCV + ONNX Runtime` 的最小推理脚本
+2. Python 导出同一张图片的预处理后输入 tensor
+3. C++ 导出同一张图片的预处理后输入 tensor
+4. 对两边 tensor 做逐元素比对，再继续调整缩放、裁剪和读图细节
 
 ## 扩展
 

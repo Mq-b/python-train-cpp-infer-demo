@@ -13,12 +13,11 @@
  *   1. 创建 OnnxClassifier 实例
  *   2. 调用 loadModel() 加载 .onnx 文件
  *   3. 调用 setClassNames() 设置类别名称列表
- *   4. 调用 classify() 对 QImage 进行分类
+ *   4. 调用 classify() 对图片路径进行分类
  */
 #pragma once
 
 #include <QString>
-#include <QImage>
 #include <QStringList>
 #include <vector>
 #include <memory>
@@ -61,18 +60,18 @@ public:
 
     /**
      * @brief 对输入图像进行分类
-     * @param image 待分类的 QImage（任意尺寸，内部会自动缩放至 224x224）
+     * @param imagePath 待分类图片路径
      * @return 分类结果，包含类别名称和置信度
      */
-    Result classify(const QImage &image);
+    Result classify(const QString &imagePath);
 
 private:
     /**
-     * @brief 图像预处理：缩放短边 + 中心裁剪 + RGB 转换 + [0,1] 归一化
-     * @param image 原始图像
+     * @brief 图像预处理：OpenCV 解码 + 缩放短边 + 中心裁剪 + RGB 转换 + [0,1] 归一化
+     * @param imagePath 原始图片路径
      * @return 归一化后的浮点数组，布局为 [3, H, W]（CHW 格式）
      */
-    std::vector<float> preprocess(const QImage &image);
+    std::vector<float> preprocess(const QString &imagePath);
 
     std::unique_ptr<Ort::Env> m_env;        ///< ONNX Runtime 环境
     std::unique_ptr<Ort::Session> m_session; ///< ONNX 推理会话
