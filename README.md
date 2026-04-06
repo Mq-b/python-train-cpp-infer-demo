@@ -94,6 +94,8 @@ cmake --build build
 - `YOLOClassifier.exe`
 - `windeployqt` 部署后的 Qt 运行库
 - `onnxruntime*.dll`
+- `libprotobuf-lite.dll`
+- `libprotobuf.dll`
 - `README.md`
 - 示例模型 `models/cat_vs_dog/best.onnx`
 

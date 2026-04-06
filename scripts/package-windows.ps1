@@ -31,6 +31,11 @@ $exePath = Join-Path $buildDir "bin\$appName.exe"
 $packageName = "$appName-windows-x64"
 $packageRoot = Join-Path $distDir $packageName
 $zipPath = Join-Path $distDir "$packageName.zip"
+$requiredRuntimeDlls = @(
+    "onnxruntime.dll",
+    "libprotobuf-lite.dll",
+    "libprotobuf.dll"
+)
 
 if (-not (Test-Path -LiteralPath $exePath)) {
     throw "Built executable not found: $exePath"
@@ -56,11 +61,18 @@ if (Test-Path -LiteralPath $modelPath) {
     Copy-Item -LiteralPath $modelPath -Destination $modelDir
 }
 
-$onnxBinDir = Join-Path $vcpkgRoot "installed\$vcpkgTriplet\bin"
-if (Test-Path -LiteralPath $onnxBinDir) {
-    Get-ChildItem -LiteralPath $onnxBinDir -Filter "onnxruntime*.dll" | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination $packageRoot
+$runtimeBinDir = Join-Path $vcpkgRoot "installed\$vcpkgTriplet\bin"
+if (-not (Test-Path -LiteralPath $runtimeBinDir)) {
+    throw "Runtime bin directory not found: $runtimeBinDir"
+}
+
+foreach ($dllName in $requiredRuntimeDlls) {
+    $sourcePath = Join-Path $runtimeBinDir $dllName
+    if (-not (Test-Path -LiteralPath $sourcePath)) {
+        throw "Required runtime DLL not found: $sourcePath"
     }
+
+    Copy-Item -LiteralPath $sourcePath -Destination $packageRoot
 }
 
 $windeployqt = Get-Command windeployqt.exe -ErrorAction Stop
