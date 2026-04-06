@@ -1,6 +1,8 @@
 .cache/
 build/
 runs/
+.vscode/settings.json
+.vscode/tasks.json
 *.pt
 *.cache
 *.torchscript
