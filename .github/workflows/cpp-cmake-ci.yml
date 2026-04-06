@@ -108,7 +108,7 @@ jobs:
         run: |
           & "$env:VCPKG_ROOT\vcpkg.exe" install `
             "onnxruntime:${{ matrix.vcpkg_triplet }}" `
-            "opencv4:${{ matrix.vcpkg_triplet }}"
+            "opencv4[core,jpeg,png,webp]:${{ matrix.vcpkg_triplet }}"
 
       - name: Install C++ dependencies on Linux
         if: runner.os == 'Linux'
@@ -116,7 +116,7 @@ jobs:
         run: |
           "$VCPKG_ROOT/vcpkg" install \
             "onnxruntime:${{ matrix.vcpkg_triplet }}" \
-            "opencv4:${{ matrix.vcpkg_triplet }}"
+            "opencv4[core,jpeg,png,webp]:${{ matrix.vcpkg_triplet }}"
 
       - name: Configure on Windows
         if: runner.os == 'Windows'
