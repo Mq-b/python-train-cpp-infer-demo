@@ -163,12 +163,18 @@ jobs:
         run: |
           package_dir="dist/${{ matrix.artifact_name }}"
           mkdir -p "${package_dir}"
-          cp "build/bin/${APP_NAME}" "${package_dir}/"
+          cp "build/Release/bin/${APP_NAME}" "${package_dir}/"
           cp README.md "${package_dir}/"
-          if [ -f "models/cat_vs_dog/best.onnx" ]; then
-            mkdir -p "${package_dir}/models/cat_vs_dog"
-            cp "models/cat_vs_dog/best.onnx" "${package_dir}/models/cat_vs_dog/"
-          fi
+          for model_dir in "models/cat_vs_dog" "models/WellColumnClassification"; do
+            if [ -d "${model_dir}" ]; then
+              mkdir -p "${package_dir}/${model_dir}"
+              for file_name in "best.onnx" "labels.txt" "dataset_summary.json"; do
+                if [ -f "${model_dir}/${file_name}" ]; then
+                  cp "${model_dir}/${file_name}" "${package_dir}/${model_dir}/"
+                fi
+              done
+            fi
+          done
           tar -C dist -czf "dist/${{ matrix.artifact_name }}.tar.gz" "${{ matrix.artifact_name }}"
 
       - name: Upload Windows artifact
@@ -176,7 +182,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.artifact_name }}.zip
+          path: dist/${{ matrix.artifact_name }}
           if-no-files-found: error
 
       - name: Upload Linux artifact

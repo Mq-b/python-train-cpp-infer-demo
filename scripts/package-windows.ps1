@@ -27,7 +27,7 @@ if ([string]::IsNullOrWhiteSpace($vcpkgTriplet)) {
 }
 
 $workspaceRoot = Get-Location
-$exePath = Join-Path $buildDir "bin\$appName.exe"
+$exePath = Join-Path $buildDir "Release\bin\$appName.exe"
 $packageName = "$appName-windows-x64"
 $packageRoot = Join-Path $distDir $packageName
 $zipPath = Join-Path $distDir "$packageName.zip"
@@ -38,7 +38,6 @@ $requiredRuntimeDlls = @(
     "libprotobuf-lite.dll",
     "libprotobuf.dll"
 )
-
 if (-not (Test-Path -LiteralPath $exePath)) {
     throw "Built executable not found: $exePath"
 }
@@ -56,11 +55,30 @@ if (Test-Path -LiteralPath $readmePath) {
     Copy-Item -LiteralPath $readmePath -Destination $packageRoot
 }
 
-$modelPath = Join-Path $workspaceRoot "models\cat_vs_dog\best.onnx"
-if (Test-Path -LiteralPath $modelPath) {
-    $modelDir = Join-Path $packageRoot "models\cat_vs_dog"
-    New-Item -ItemType Directory -Path $modelDir -Force | Out-Null
-    Copy-Item -LiteralPath $modelPath -Destination $modelDir
+$catDogModelDir = Join-Path $workspaceRoot "models\cat_vs_dog"
+if (Test-Path -LiteralPath $catDogModelDir) {
+    $targetDir = Join-Path $packageRoot "models\cat_vs_dog"
+    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+
+    foreach ($fileName in @("best.onnx", "labels.txt", "dataset_summary.json")) {
+        $sourcePath = Join-Path $catDogModelDir $fileName
+        if (Test-Path -LiteralPath $sourcePath) {
+            Copy-Item -LiteralPath $sourcePath -Destination $targetDir
+        }
+    }
+}
+
+$wellColumnModelDir = Join-Path $workspaceRoot "models\WellColumnClassification"
+if (Test-Path -LiteralPath $wellColumnModelDir) {
+    $targetDir = Join-Path $packageRoot "models\WellColumnClassification"
+    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+
+    foreach ($fileName in @("best.onnx", "labels.txt", "dataset_summary.json")) {
+        $sourcePath = Join-Path $wellColumnModelDir $fileName
+        if (Test-Path -LiteralPath $sourcePath) {
+            Copy-Item -LiteralPath $sourcePath -Destination $targetDir
+        }
+    }
 }
 
 $runtimeBinDir = Join-Path $vcpkgRoot "installed\$vcpkgTriplet\bin"
