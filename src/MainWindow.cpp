@@ -11,11 +11,13 @@
 #include "MainWindow.h"
 #include "ImageUtils.h"
 #include <QApplication>
-#include <QPixmap>
-#include <QDir>
 #include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QListWidgetItem>
+#include <QPixmap>
+#include <QTextStream>
+#include <QMap>
 #include <functional>
 
 namespace {
@@ -37,6 +39,70 @@ QString buildScoreDetail(const OnnxClassifier::Result &result, const std::functi
             .arg(score.second * 100.0, 0, 'f', 2);
     }
     return detail;
+}
+
+QStringList loadClassNamesFromModelDir(const QString &modelPath) {
+    const QFileInfo modelInfo(modelPath);
+    const QStringList candidates{
+        modelInfo.dir().filePath("labels.txt"),
+        modelInfo.dir().filePath("class_names.txt")
+    };
+
+    for (const QString &candidate : candidates) {
+        QFile file(candidate);
+        if (!file.exists()) {
+            continue;
+        }
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+
+        QTextStream stream(&file);
+        stream.setCodec("UTF-8");
+
+        QStringList classNames;
+        while (!stream.atEnd()) {
+            const QString line = stream.readLine().trimmed();
+            if (!line.isEmpty()) {
+                classNames << line;
+            }
+        }
+        if (!classNames.isEmpty()) {
+            return classNames;
+        }
+    }
+
+    return {};
+}
+
+QStringList inferLegacyClassNames(const QString &modelPath) {
+    const QFileInfo modelInfo(modelPath);
+    if (modelInfo.dir().dirName().compare("cat_vs_dog", Qt::CaseInsensitive) == 0) {
+        return {"cat", "dog"};
+    }
+    return {};
+}
+
+QString buildBatchSummaryText(
+    int totalCount,
+    int okCount,
+    int failedCount,
+    const QMap<QString, int> &classCounts
+) {
+    QString summary = QString("状态: 批量推理完成，共 %1 张，成功 %2 张，失败 %3 张")
+        .arg(totalCount)
+        .arg(okCount)
+        .arg(failedCount);
+
+    if (!classCounts.isEmpty()) {
+        QStringList parts;
+        for (auto it = classCounts.constBegin(); it != classCounts.constEnd(); ++it) {
+            parts << QString("%1 %2 张").arg(it.key()).arg(it.value());
+        }
+        summary += "，" + parts.join("，");
+    }
+
+    return summary;
 }
 
 } // namespace
@@ -141,12 +207,22 @@ void MainWindow::selectModel() {
     m_modelPath = path;
 
     if (m_classifier.loadModel(path)) {
-        m_classifier.setClassNames({"cat", "dog"});
+        QStringList classNames = loadClassNamesFromModelDir(path);
+        if (classNames.isEmpty()) {
+            classNames = inferLegacyClassNames(path);
+        }
+        m_classifier.setClassNames(classNames);
+
         m_modelLabel->setText("模型: " + path);
         m_modelLabel->setStyleSheet("color: green;");
         m_inferenceBtn->setEnabled(m_currentIndex >= 0);
         m_batchInferenceBtn->setEnabled(!m_imagePaths.isEmpty());
-        setStatusText("状态: 模型加载成功");
+
+        if (!classNames.isEmpty()) {
+            setStatusText(QString("状态: 模型加载成功，已加载 %1 个类别").arg(classNames.size()));
+        } else {
+            setStatusText("状态: 模型加载成功，未找到 labels.txt，将显示 class_N");
+        }
     } else {
         m_modelLabel->setText("模型加载失败: " + path);
         m_modelLabel->setStyleSheet("color: red;");
@@ -229,9 +305,9 @@ void MainWindow::runBatchInference() {
 
     clearResultList();
 
-    int catCount = 0;
-    int dogCount = 0;
     int okCount = 0;
+    int failedCount = 0;
+    QMap<QString, int> classCounts;
 
     for (int i = 0; i < m_imagePaths.size(); ++i) {
         const QString &path = m_imagePaths[i];
@@ -247,6 +323,7 @@ void MainWindow::runBatchInference() {
             );
             item->setData(kImageIndexRole, i);
             m_resultList->addItem(item);
+            failedCount++;
             QApplication::processEvents();
             continue;
         }
@@ -255,11 +332,7 @@ void MainWindow::runBatchInference() {
         okCount++;
 
         const QString label = toChineseLabel(result.className);
-        if (label == "猫") {
-            catCount++;
-        } else if (label == "狗") {
-            dogCount++;
-        }
+        classCounts[label] += 1;
 
         if (i == m_currentIndex) {
             displayResult(result);
@@ -267,11 +340,7 @@ void MainWindow::runBatchInference() {
         QApplication::processEvents();
     }
 
-    setStatusText(QString("状态: 批量推理完成，共 %1 张，成功 %2 张，猫 %3 张，狗 %4 张")
-        .arg(m_imagePaths.size())
-        .arg(okCount)
-        .arg(catCount)
-        .arg(dogCount));
+    setStatusText(buildBatchSummaryText(m_imagePaths.size(), okCount, failedCount, classCounts));
 }
 
 void MainWindow::prevImage() {

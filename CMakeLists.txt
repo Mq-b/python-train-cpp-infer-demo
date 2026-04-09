@@ -9,7 +9,7 @@ if(DEFINED ENV{VCPKG_LIB} AND NOT "$ENV{VCPKG_LIB}" STREQUAL "")
     list(PREPEND CMAKE_PREFIX_PATH "$ENV{VCPKG_LIB}")
 endif()
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}/bin")
 
 find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
 find_package(onnxruntime CONFIG REQUIRED)
@@ -50,5 +50,23 @@ install(FILES "${CMAKE_SOURCE_DIR}/README.md"
 if(EXISTS "${CMAKE_SOURCE_DIR}/models/cat_vs_dog/best.onnx")
     install(FILES "${CMAKE_SOURCE_DIR}/models/cat_vs_dog/best.onnx"
         DESTINATION models/cat_vs_dog
+    )
+endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/models/cat_vs_dog/labels.txt")
+    install(FILES "${CMAKE_SOURCE_DIR}/models/cat_vs_dog/labels.txt"
+        DESTINATION models/cat_vs_dog
+    )
+endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/models/WellColumnClassification/best.onnx")
+    install(FILES "${CMAKE_SOURCE_DIR}/models/WellColumnClassification/best.onnx"
+        DESTINATION models/WellColumnClassification
+    )
+endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/models/WellColumnClassification/labels.txt")
+    install(FILES "${CMAKE_SOURCE_DIR}/models/WellColumnClassification/labels.txt"
+        DESTINATION models/WellColumnClassification
     )
 endif()
