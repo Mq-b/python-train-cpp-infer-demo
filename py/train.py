@@ -46,9 +46,9 @@ MODEL_NAME = "yolo11n-cls.pt"
 RUN_NAME = "WellColumnClassification"
 IMG_SIZE = 224
 EPOCHS = 200
-BATCH_SIZE = 16
+BATCH_SIZE = 64
 DEVICE = 0
-WORKERS = 0
+WORKERS = 4
 
 
 def iter_class_dirs(root: Path) -> list[Path]:
