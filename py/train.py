@@ -1,92 +1,278 @@
 """
-猫狗分类模型训练脚本 (YOLOv11 Classification)
+WellColumnClassification 训练脚本 (YOLO Classification)
 
 数据集目录结构:
-    assets/
-    ├── train/
-    │   ├── cat/   (20 张猫的训练图片)
-    │   └── dog/   (20 张狗的训练图片)
-    └── val/
-        ├── cat/   (5 张猫的验证图片)
-        └── dog/   (5 张狗的验证图片)
+    assets/WellColumnClassification/
+    ├── TrainingSet/
+    │   ├── 1+/
+    │   ├── 2+/
+    │   └── ...
+    └── TestSet/
+        ├── 1+/
+        ├── 2+/
+        └── ...
 
-模型: YOLOv11n-cls (轻量级分类模型，153 万参数)
-任务: 二分类 (猫 vs 狗)
+规则:
+1. 类别名直接使用文件夹名，例如 `1+`、`DP`、`？`
+2. 忽略名为 `_` 的文件夹
+3. 忽略没有训练图片的空类别
+4. 自动生成 Ultralytics 需要的 `train/val` 标准目录视图
 
-导出目录: models/cat_vs_dog/
+导出目录:
+    models/WellColumnClassification/
 """
 
+from __future__ import annotations
+
+import json
 import os
 import shutil
+from pathlib import Path
+
 from ultralytics import YOLO
 
-# 固定的模型导出目录
-EXPORT_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "cat_vs_dog"
-)
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+DATASET_DIR = ROOT_DIR / "assets" / "WellColumnClassification"
+TRAINING_SET_DIR = DATASET_DIR / "TrainingSet"
+TEST_SET_DIR = DATASET_DIR / "TestSet"
+PREPARED_DATASET_DIR = ROOT_DIR / "assets" / ".prepared" / "WellColumnClassification"
+EXPORT_DIR = ROOT_DIR / "models" / "WellColumnClassification"
+
+IGNORE_CLASS_NAMES = {"_"}
+IMAGE_SUFFIXES = {".bmp", ".jpg", ".jpeg", ".png", ".webp"}
+
+MODEL_NAME = "yolo11n-cls.pt"
+RUN_NAME = "WellColumnClassification"
+IMG_SIZE = 224
+EPOCHS = 200
+BATCH_SIZE = 16
+DEVICE = 0
+WORKERS = 0
 
 
-def main():
-    # ============================================================
-    # 1. 加载预训练模型
-    # ============================================================
-    # YOLOv11n-cls: nano 级别的分类模型，参数量最小，训练最快
-    # 使用 ImageNet 预训练权重，通过迁移学习适配猫狗二分类任务
-    # 模型会自动将最后的分类头从 80 类 (ImageNet) 改为 2 类 (猫/狗)
-    model = YOLO("yolo11n-cls.pt")
-
-    # ============================================================
-    # 2. 开始训练
-    # ============================================================
-    results = model.train(
-        plots=False,
-        data="assets",  # 数据集根目录，Ultralytics 自动扫描 train/ 和 val/ 下的子文件夹作为类别
-        epochs=200,  # 训练轮数：完整遍历训练集 10 次
-        imgsz=224,  # 输入图片尺寸：缩放至 224x224 像素（分类模型标准输入尺寸）
-        batch=16,  # 批次大小：每次前向传播同时处理 16 张图片
-        device=0,  # 使用 GPU 0 (RTX 4060) 训练，若无 GPU 改为 "cpu"
-        workers=12,  # 数据加载线程数：Windows 下设为 0 避免多进程 spawn 错误
-        project="runs/classify",  # 输出项目目录：训练日志、权重、图表保存位置
-        name="cat_vs_dog",  # 实验名称：结果保存在 runs/classify/cat_vs_dog/ 下
-        amp=False,  # 关闭混合精度训练（避免缓存权重损坏导致的 AMP 检查失败）
-        verbose=True,  # 打印每个 epoch 的训练进度和指标
-        exist_ok=True,  # 允许覆盖已有实验目录，避免自动递增后缀
+def iter_class_dirs(root: Path) -> list[Path]:
+    if not root.is_dir():
+        raise FileNotFoundError(f"数据集目录不存在: {root}")
+    return sorted(
+        [path for path in root.iterdir() if path.is_dir() and path.name not in IGNORE_CLASS_NAMES],
+        key=lambda path: path.name,
     )
 
-    # ============================================================
-    # 3. 验证模型性能
-    # ============================================================
-    # 在 val 数据集上评估模型，输出 top-1 和 top-5 准确率
-    metrics = model.val()
+
+def iter_image_files(root: Path) -> list[Path]:
+    if not root.is_dir():
+        return []
+    return sorted(
+        [
+            path
+            for path in root.rglob("*")
+            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+        ]
+    )
+
+
+def count_images(root: Path) -> int:
+    return len(iter_image_files(root))
+
+
+def link_or_copy_file(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        return
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def prepare_split(src_root: Path, dst_root: Path, class_names: list[str]) -> None:
+    if dst_root.exists():
+        shutil.rmtree(dst_root)
+    dst_root.mkdir(parents=True, exist_ok=True)
+
+    for class_name in class_names:
+        src_class_dir = src_root / class_name
+        dst_class_dir = dst_root / class_name
+        dst_class_dir.mkdir(parents=True, exist_ok=True)
+
+        for src_file in iter_image_files(src_class_dir):
+            relative_path = src_file.relative_to(src_class_dir)
+            link_or_copy_file(src_file, dst_class_dir / relative_path)
+
+
+def build_dataset_summary() -> tuple[list[str], list[dict]]:
+    all_class_names = sorted(
+        {path.name for path in iter_class_dirs(TRAINING_SET_DIR)}
+        | {path.name for path in iter_class_dirs(TEST_SET_DIR)}
+    )
+
+    selected_class_names: list[str] = []
+    summary: list[dict] = []
+
+    for class_name in all_class_names:
+        train_count = count_images(TRAINING_SET_DIR / class_name)
+        val_count = count_images(TEST_SET_DIR / class_name)
+
+        item = {
+            "name": class_name,
+            "train_images": train_count,
+            "val_images": val_count,
+        }
+
+        if train_count <= 0:
+            item["used"] = False
+            item["reason"] = "no training images"
+        else:
+            item["used"] = True
+            selected_class_names.append(class_name)
+
+        summary.append(item)
+
+    if len(selected_class_names) < 2:
+        raise RuntimeError(
+            "可用于训练的类别少于 2 个。请检查 TrainingSet 中的类别文件夹是否存在有效图片。"
+        )
+
+    return selected_class_names, summary
+
+
+def prepare_dataset() -> tuple[list[str], list[dict]]:
+    class_names, summary = build_dataset_summary()
+
+    if PREPARED_DATASET_DIR.exists():
+        shutil.rmtree(PREPARED_DATASET_DIR)
+
+    prepare_split(TRAINING_SET_DIR, PREPARED_DATASET_DIR / "train", class_names)
+    prepare_split(TEST_SET_DIR, PREPARED_DATASET_DIR / "val", class_names)
+
+    return class_names, summary
+
+
+def write_metadata(class_names: list[str], summary: list[dict], train_run_dir: Path | None = None) -> None:
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+    labels_text = "\n".join(class_names) + "\n"
+    (EXPORT_DIR / "labels.txt").write_text(labels_text, encoding="utf-8")
+    (EXPORT_DIR / "dataset_summary.json").write_text(
+        json.dumps(
+            {
+                "dataset_root": str(DATASET_DIR),
+                "prepared_dataset_root": str(PREPARED_DATASET_DIR),
+                "ignored_class_names": sorted(IGNORE_CLASS_NAMES),
+                "used_classes": class_names,
+                "summary": summary,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    if train_run_dir is not None:
+        (train_run_dir / "labels.txt").write_text(labels_text, encoding="utf-8")
+
+
+def move_exported_file(exported_path: str | Path, target_path: Path) -> Path:
+    exported_path = Path(exported_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if target_path.exists() and exported_path.resolve() != target_path.resolve():
+        target_path.unlink()
+
+    if exported_path.resolve() != target_path.resolve():
+        shutil.move(str(exported_path), str(target_path))
+
+    return target_path
+
+
+def export_models(best_pt_path: Path) -> None:
+    best_model = YOLO(str(best_pt_path))
+
+    onnx_path = best_model.export(
+        format="onnx",
+        imgsz=IMG_SIZE,
+        project=str(EXPORT_DIR),
+        name=".",
+        exist_ok=True,
+    )
+    onnx_path = move_exported_file(onnx_path, EXPORT_DIR / "best.onnx")
+    print(f"\nONNX 模型: {onnx_path}")
+
+    torchscript_path = best_model.export(
+        format="torchscript",
+        imgsz=IMG_SIZE,
+        project=str(EXPORT_DIR),
+        name=".",
+        exist_ok=True,
+    )
+    torchscript_path = move_exported_file(
+        torchscript_path, EXPORT_DIR / "best.torchscript"
+    )
+    print(f"TorchScript 模型: {torchscript_path}")
+
+
+def print_dataset_summary(summary: list[dict], class_names: list[str]) -> None:
+    print("\n参与训练的类别:")
+    for index, class_name in enumerate(class_names):
+        print(f"  [{index}] {class_name}")
+
+    print("\n数据集统计:")
+    for item in summary:
+        used_flag = "使用" if item["used"] else "跳过"
+        reason = f" ({item['reason']})" if "reason" in item else ""
+        print(
+            f"  {used_flag:2}  {item['name']}: "
+            f"train={item['train_images']}, val={item['val_images']}{reason}"
+        )
+
+
+def main() -> None:
+    class_names, summary = prepare_dataset()
+    write_metadata(class_names, summary)
+    print_dataset_summary(summary, class_names)
+
+    model = YOLO(MODEL_NAME)
+
+    results = model.train(
+        plots=False,
+        data=str(PREPARED_DATASET_DIR),
+        epochs=EPOCHS,
+        imgsz=IMG_SIZE,
+        batch=BATCH_SIZE,
+        device=DEVICE,
+        workers=WORKERS,
+        project="runs/classify",
+        name=RUN_NAME,
+        amp=False,
+        verbose=True,
+        exist_ok=True,
+    )
+
+    train_run_dir = Path(results.save_dir)
+    train_weights_dir = train_run_dir / "weights"
+    best_pt_path = train_weights_dir / "best.pt"
+    write_metadata(class_names, summary, train_run_dir=train_run_dir)
+
+    best_model = YOLO(str(best_pt_path))
+    metrics = best_model.val(
+        data=str(PREPARED_DATASET_DIR),
+        split="val",
+        imgsz=IMG_SIZE,
+        batch=BATCH_SIZE,
+        device=DEVICE,
+        workers=WORKERS,
+        verbose=True,
+    )
     print(f"\n验证集 Top-1 准确率: {metrics.top1:.2%}")
     print(f"验证集 Top-5 准确率: {metrics.top5:.2%}")
 
-    # ============================================================
-    # 4. 导出模型到固定目录
-    # ============================================================
-    os.makedirs(EXPORT_DIR, exist_ok=True)
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(best_pt_path, EXPORT_DIR / "best.pt")
+    print(f"\nPyTorch 模型: {EXPORT_DIR / 'best.pt'}")
 
-    # 找到训练输出的 best.pt 路径
-    train_weights_dir = results.save_dir / "weights"
-    best_pt = str(train_weights_dir / "best.pt")
+    export_models(best_pt_path)
 
-    # 导出 ONNX 到固定目录
-    onnx_path = model.export(format="onnx", imgsz=224, project=EXPORT_DIR, name=".")
-    shutil.move(onnx_path, os.path.join(EXPORT_DIR, "best.onnx"))
-    print(f"\nONNX 模型: {os.path.join(EXPORT_DIR, 'best.onnx')}")
-
-    # 导出 TorchScript 到固定目录
-    ts_path = model.export(
-        format="torchscript", imgsz=224, project=EXPORT_DIR, name="."
-    )
-    shutil.move(ts_path, os.path.join(EXPORT_DIR, "best.torchscript"))
-    print(f"TorchScript 模型: {os.path.join(EXPORT_DIR, 'best.torchscript')}")
-
-    # 复制 best.pt 到固定目录
-    shutil.copy2(best_pt, os.path.join(EXPORT_DIR, "best.pt"))
-    print(f"PyTorch 模型: {os.path.join(EXPORT_DIR, 'best.pt')}")
-
-    print(f"\n所有模型已导出至: {EXPORT_DIR}")
     print(f"\n所有模型已导出至: {EXPORT_DIR}")
 
 

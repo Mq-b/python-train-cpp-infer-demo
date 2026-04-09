@@ -1,19 +1,26 @@
 """
-猫狗分类推理工具 (带 GUI)
+YOLO 分类推理工具 (带 GUI)
 
 功能:
 1. 选择 YOLO 分类模型 (.pt / .onnx / .torchscript)
 2. 选择单张图片进行推理
 3. 选择整个文件夹批量推理
 4. 显示分类结果和置信度
+5. 优先读取模型同目录下的 labels.txt 作为类别名
 """
+
+from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+
 from PIL import Image, ImageTk
 from ultralytics import YOLO
+
+
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 
 class InferenceApp:
@@ -25,13 +32,13 @@ class InferenceApp:
 
         self.model = None
         self.model_path = ""
+        self.class_names: list[str] = []
         self.current_image = None
         self.photo = None
 
         self._build_ui()
 
     def _build_ui(self):
-        # ========== 顶部: 模型选择 ==========
         model_frame = ttk.LabelFrame(self.root, text="模型", padding=10)
         model_frame.pack(fill="x", padx=10, pady=5)
 
@@ -43,7 +50,6 @@ class InferenceApp:
             side="left"
         )
 
-        # ========== 中间: 输入选择 ==========
         input_frame = ttk.LabelFrame(self.root, text="输入", padding=10)
         input_frame.pack(fill="x", padx=10, pady=5)
 
@@ -65,11 +71,9 @@ class InferenceApp:
             fill="x", pady=(5, 0)
         )
 
-        # ========== 结果区域 ==========
         result_frame = ttk.LabelFrame(self.root, text="推理结果", padding=10)
         result_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # 滚动区域
         canvas = tk.Canvas(result_frame)
         scrollbar = ttk.Scrollbar(result_frame, orient="vertical", command=canvas.yview)
         self.result_inner = ttk.Frame(canvas)
@@ -85,7 +89,6 @@ class InferenceApp:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # 状态栏
         self.status_var = tk.StringVar(value="就绪")
         ttk.Label(
             self.root, textvariable=self.status_var, relief="sunken", anchor="w"
@@ -106,16 +109,25 @@ class InferenceApp:
         self.root.update()
 
         try:
-            # Explicitly specify task for ONNX/classification models to avoid guessing issues
             if path.lower().endswith(".onnx"):
                 self.model = YOLO(path, task="classify")
             else:
                 self.model = YOLO(path)
+
             self.model_path = path
-            self.model_var.set(f"已加载: {os.path.basename(path)}")
+            self.class_names = self._load_class_names(path)
+
+            model_name = os.path.basename(path)
+            if self.class_names:
+                self.model_var.set(f"已加载: {model_name} ({len(self.class_names)} 类)")
+            else:
+                self.model_var.set(f"已加载: {model_name}")
+
             self.status_var.set("模型加载成功")
         except Exception as e:
             self.model = None
+            self.model_path = ""
+            self.class_names = []
             self.model_var.set("加载失败")
             self.status_var.set(f"模型加载失败: {e}")
             messagebox.showerror("错误", f"无法加载模型:\n{e}")
@@ -157,12 +169,10 @@ class InferenceApp:
         if not folder:
             return
 
-        # 收集所有图片
-        exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
         images = [
-            os.path.join(folder, f)
-            for f in os.listdir(folder)
-            if os.path.splitext(f)[1].lower() in exts
+            str(path)
+            for path in sorted(Path(folder).rglob("*"))
+            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
         ]
 
         if not images:
@@ -175,7 +185,6 @@ class InferenceApp:
         self.root.update()
 
         try:
-            # 尝试批量推理，若失败再逐图推理以定位问题
             try:
                 results = self.model(images, imgsz=224)
                 for i, (img_path, result) in enumerate(zip(images, results)):
@@ -200,11 +209,9 @@ class InferenceApp:
             messagebox.showerror("错误", f"推理失败:\n{e}")
 
     def _show_single_result(self, img_path, result):
-        """在结果区域显示单张图片的推理结果"""
         row = ttk.Frame(self.result_inner)
         row.pack(fill="x", pady=5)
 
-        # 左侧: 图片缩略图
         thumb_frame = ttk.Frame(row, width=150, height=150)
         thumb_frame.pack(side="left", padx=(0, 10))
         thumb_frame.pack_propagate(False)
@@ -214,12 +221,11 @@ class InferenceApp:
             img.thumbnail((150, 150))
             photo = ImageTk.PhotoImage(img)
             lbl = ttk.Label(thumb_frame, image=photo)
-            lbl.image = photo  # 保持引用
+            lbl.image = photo
             lbl.pack()
         except Exception:
             ttk.Label(thumb_frame, text="无法加载").pack()
 
-        # 右侧: 信息
         info_frame = ttk.Frame(row)
         info_frame.pack(side="left", fill="x", expand=True)
 
@@ -232,22 +238,14 @@ class InferenceApp:
             info_frame, text=img_path, foreground="gray", font=("Consolas", 8)
         ).pack(anchor="w")
 
-        # 解析分类结果
         probs = result.probs
         top1_idx = probs.top1
         top1_conf = probs.top1conf
         top5 = probs.top5
-
         names = result.names
-        top1_name = (
-            names.get(top1_idx, str(top1_idx))
-            if isinstance(names, dict)
-            else names[top1_idx]
-        )
 
-        # 中文映射
-        label_map = {"cat": "猫", "dog": "狗"}
-        display_name = label_map.get(top1_name.lower(), top1_name)
+        top1_name = self._resolve_class_name(top1_idx, names)
+        display_name = self._format_label(top1_name)
 
         result_text = f"预测: {display_name} (置信度: {top1_conf:.1%})"
         ttk.Label(
@@ -257,25 +255,52 @@ class InferenceApp:
             foreground="#1a73e8",
         ).pack(anchor="w", pady=(5, 0))
 
-        # Top-5 详情
         if len(top5) > 1:
             detail_lines = []
             for idx, conf in zip(top5, probs.top5conf):
-                name = (
-                    names.get(idx, str(idx)) if isinstance(names, dict) else names[idx]
-                )
-                display = label_map.get(name.lower(), name)
-                detail_lines.append(f"  {display}: {conf:.1%}")
+                name = self._resolve_class_name(idx, names)
+                detail_lines.append(f"  {self._format_label(name)}: {conf:.1%}")
             ttk.Label(
                 info_frame, text="\n".join(detail_lines), font=("Consolas", 9)
             ).pack(anchor="w")
 
-        # 分隔线
         ttk.Separator(self.result_inner, orient="horizontal").pack(fill="x", pady=5)
 
     def _clear_results(self):
         for widget in self.result_inner.winfo_children():
             widget.destroy()
+
+    def _resolve_class_name(self, index, result_names):
+        if 0 <= index < len(self.class_names):
+            return self.class_names[index]
+
+        if isinstance(result_names, dict):
+            return result_names.get(index, str(index))
+
+        if isinstance(result_names, (list, tuple)) and 0 <= index < len(result_names):
+            return result_names[index]
+
+        return str(index)
+
+    @staticmethod
+    def _load_class_names(model_path: str) -> list[str]:
+        model_dir = Path(model_path).resolve().parent
+        for filename in ("labels.txt", "class_names.txt"):
+            labels_path = model_dir / filename
+            if not labels_path.is_file():
+                continue
+            lines = [
+                line.strip()
+                for line in labels_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            if lines:
+                return lines
+        return []
+
+    @staticmethod
+    def _format_label(name):
+        return str(name).strip()
 
 
 def main():
