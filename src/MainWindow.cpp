@@ -208,8 +208,26 @@ void MainWindow::selectModel() {
 
     if (m_classifier.loadModel(path)) {
         QStringList classNames = loadClassNamesFromModelDir(path);
+        enum class ClassNamesSource {
+            None,
+            ModelDir,
+            OnnxMetadata,
+            LegacyFallback,
+        };
+        ClassNamesSource classNamesSource = classNames.isEmpty()
+            ? ClassNamesSource::None
+            : ClassNamesSource::ModelDir;
+        if (classNames.isEmpty()) {
+            classNames = m_classifier.modelClassNames();
+            if (!classNames.isEmpty()) {
+                classNamesSource = ClassNamesSource::OnnxMetadata;
+            }
+        }
         if (classNames.isEmpty()) {
             classNames = inferLegacyClassNames(path);
+            if (!classNames.isEmpty()) {
+                classNamesSource = ClassNamesSource::LegacyFallback;
+            }
         }
         m_classifier.setClassNames(classNames);
 
@@ -219,9 +237,15 @@ void MainWindow::selectModel() {
         m_batchInferenceBtn->setEnabled(!m_imagePaths.isEmpty());
 
         if (!classNames.isEmpty()) {
-            setStatusText(QString("状态: 模型加载成功，已加载 %1 个类别").arg(classNames.size()));
+            if (classNamesSource == ClassNamesSource::ModelDir) {
+                setStatusText(QString("状态: 模型加载成功，已从 labels.txt 加载 %1 个类别").arg(classNames.size()));
+            } else if (classNamesSource == ClassNamesSource::OnnxMetadata) {
+                setStatusText(QString("状态: 模型加载成功，已从 ONNX metadata 加载 %1 个类别").arg(classNames.size()));
+            } else {
+                setStatusText(QString("状态: 模型加载成功，已从兼容回退逻辑加载 %1 个类别").arg(classNames.size()));
+            }
         } else {
-            setStatusText("状态: 模型加载成功，未找到 labels.txt，将显示 class_N");
+            setStatusText("状态: 模型加载成功，未找到 labels/metadata，将显示 class_N");
         }
     } else {
         m_modelLabel->setText("模型加载失败: " + path);

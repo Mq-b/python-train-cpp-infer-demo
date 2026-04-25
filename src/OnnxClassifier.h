@@ -59,6 +59,12 @@ public:
     void setClassNames(const QStringList &names);
 
     /**
+     * @brief 获取模型 metadata 中解析到的类别名称（若存在）
+     * @return 类别名称列表；无可用 metadata 时返回空列表
+     */
+    QStringList modelClassNames() const;
+
+    /**
      * @brief 对输入图像进行分类
      * @param imagePath 待分类图片路径
      * @return 分类结果，包含类别名称和置信度
@@ -76,6 +82,7 @@ private:
     std::unique_ptr<Ort::Env> m_env;        ///< ONNX Runtime 环境
     std::unique_ptr<Ort::Session> m_session; ///< ONNX 推理会话
     QStringList m_classNames;                ///< 类别名称列表
+    QStringList m_modelClassNames;           ///< ONNX metadata 解析出的类别名称
     bool m_loaded = false;                   ///< 模型加载状态标志
     int m_inputWidth = 224;                  ///< 模型输入宽度
     int m_inputHeight = 224;                 ///< 模型输入高度

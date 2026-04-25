@@ -117,6 +117,54 @@ cmake --build build
    点击 **加载文件夹** → 程序会递归收集子文件夹中的图片 → 点击 **批量推理全部**
 5. 可点击下方结果列表中的任意项，快速切回对应图片查看结果
 
+## 参数对齐记录（2026-04-25）
+
+本次主要做了“Python YOLO 推理”和“C++ ORT 推理”的参数对齐，重点如下：
+
+- 新增脚本 [`py/inspect_onnx_for_cpp.py`](./py/inspect_onnx_for_cpp.py)，可从 ONNX 读取 metadata（`task/imgsz/names/args`）并导出参数文件（如 `best.infer_params.json`）。
+- C++ 侧优化了分类前处理细节（短边缩放取整、中心裁剪取整、下采样插值策略），以更接近 Ultralytics 分类默认流程。
+- C++ 侧增加了 ONNX metadata 的读取与类别名解析（`names`）。
+
+### `best.infer_params.json` 当前作用
+
+`best.infer_params.json` 目前是**对齐/排查用报告文件**，用于查看模型导出参数并和 C++ 实现核对。  
+当前 C++ 推理流程**不会自动读取**这个 JSON 文件。
+
+`inspect_onnx_for_cpp.py` 使用示例：
+
+```bash
+# 在仓库根目录执行（以猫狗模型为例）
+python py/inspect_onnx_for_cpp.py ^
+  --model models/cat_vs_dog/best.onnx ^
+  --image assets/val/dog/dog_21.jpg ^
+  --out models/cat_vs_dog/best.infer_params.json
+```
+
+执行后会在终端打印解析结果，并写出 `models/cat_vs_dog/best.infer_params.json`。
+
+### C++ 当前类别名查找顺序
+
+在选择 `.onnx` 模型后，C++ 按下面顺序找类别名：
+
+1. 模型同级目录：`labels.txt`，找不到再找 `class_names.txt`
+2. ONNX metadata：读取 `names`
+3. 兼容回退：若模型目录名是 `cat_vs_dog`，使用 `cat/dog`
+4. 以上都没有时，显示 `class_N`
+
+对应代码位置：
+
+- [`MainWindow.cpp`](./src/MainWindow.cpp) 的 `selectModel()`
+- [`OnnxClassifier.cpp`](./src/OnnxClassifier.cpp) 的 `loadModel()` 与 `modelClassNames()`
+
+### 对猫狗模型和试剂模型的建议
+
+两个模型都建议各自放在独立目录，并在模型目录至少提供以下文件之一：
+
+- `labels.txt`（推荐）
+- 或依赖 ONNX metadata 的 `names`
+
+这样 C++ 在切换猫狗模型/试剂模型时会自动加载对应类别名，避免串类。
+
 ## 模型来源
 
 模型由 [`py`](./py/) 目录中的 Python 脚本基于 YOLO 训练的分类模型导出，训练脚本示例：

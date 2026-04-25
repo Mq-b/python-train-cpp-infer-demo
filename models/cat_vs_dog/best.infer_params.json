@@ -1,0 +1,120 @@
+{
+  "model_path": "E:\\YOLO\\python-train-cpp-infer-demo\\models\\cat_vs_dog\\best.onnx",
+  "io": {
+    "input_name": "images",
+    "input_shape": [
+      1,
+      3,
+      224,
+      224
+    ],
+    "input_type": "tensor(float)",
+    "output_name": "output0",
+    "output_shape": [
+      1,
+      2
+    ],
+    "output_type": "tensor(float)"
+  },
+  "metadata_raw": {
+    "date": "2026-04-06T10:48:26.236324",
+    "description": "Ultralytics YOLO11n-cls model trained on assets",
+    "author": "Ultralytics",
+    "version": "8.4.33",
+    "task": "classify",
+    "license": "AGPL-3.0 License (https://ultralytics.com/license)",
+    "docs": "https://docs.ultralytics.com",
+    "stride": "1",
+    "batch": "1",
+    "imgsz": "[224, 224]",
+    "names": "{0: 'cat', 1: 'dog'}",
+    "args": "{'batch': 1, 'half': False, 'dynamic': False, 'simplify': True, 'opset': None, 'nms': False}",
+    "channels": "3",
+    "end2end": "False"
+  },
+  "metadata_parsed": {
+    "date": "2026-04-06T10:48:26.236324",
+    "description": "Ultralytics YOLO11n-cls model trained on assets",
+    "author": "Ultralytics",
+    "version": "8.4.33",
+    "task": "classify",
+    "license": "AGPL-3.0 License (https://ultralytics.com/license)",
+    "docs": "https://docs.ultralytics.com",
+    "stride": 1,
+    "batch": 1,
+    "imgsz": [
+      224,
+      224
+    ],
+    "names": {
+      "0": "cat",
+      "1": "dog"
+    },
+    "args": {
+      "batch": 1,
+      "half": false,
+      "dynamic": false,
+      "simplify": true,
+      "opset": null,
+      "nms": false
+    },
+    "channels": 3,
+    "end2end": false
+  },
+  "cpp_recommended_config": {
+    "task": "classify",
+    "imgsz_hw": [
+      224,
+      224
+    ],
+    "layout": "NCHW",
+    "color_order": "RGB",
+    "pixel_range": "[0, 1]",
+    "normalize_mean": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "normalize_std": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "resize_rule": "short_edge_to_target_then_center_crop",
+    "resize_long_edge_rounding": "floor(int(target * long / short))",
+    "center_crop_rounding": "round((resized - target) / 2)",
+    "interpolation_hint": "PIL.BILINEAR in YOLO; C++ approximate: INTER_AREA when downsample else INTER_LINEAR",
+    "softmax_hint": "Do not add softmax again if model output already sums close to 1.",
+    "class_names": [
+      "cat",
+      "dog"
+    ]
+  },
+  "probe": {
+    "image_path": "E:\\YOLO\\python-train-cpp-infer-demo\\assets\\val\\dog\\dog_21.jpg",
+    "cpp_style": {
+      "shape": [
+        1,
+        2
+      ],
+      "sum": 0.9999999701976776,
+      "min": 0.29744085669517517,
+      "max": 0.7025591135025024,
+      "top1_index": 1,
+      "top1_score": 0.7025591135025024
+    },
+    "ultralytics_reference_style": {
+      "shape": [
+        1,
+        2
+      ],
+      "sum": 1.0000000298023224,
+      "min": 0.41840896010398865,
+      "max": 0.5815910696983337,
+      "top1_index": 1,
+      "top1_score": 0.5815910696983337
+    },
+    "top1_same": true,
+    "top1_score_abs_diff": 0.1209680438041687
+  }
+}

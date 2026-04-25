@@ -17,10 +17,51 @@
 #error "onnxruntime_cxx_api.h not found"
 #endif
 #include <QDebug>
+#include <QMap>
+#include <QRegularExpression>
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
+
+namespace {
+
+QString readCustomMetadataValue(Ort::ModelMetadata &metadata, const char *key) {
+    try {
+        Ort::AllocatorWithDefaultOptions allocator;
+        auto value = metadata.LookupCustomMetadataMapAllocated(key, allocator);
+        if (value && value.get() != nullptr) {
+            return QString::fromUtf8(value.get());
+        }
+    } catch (const std::exception &) {
+    }
+    return {};
+}
+
+QStringList parseNamesFromMetadata(const QString &text) {
+    QMap<int, QString> parsed;
+    const QRegularExpression pattern(R"((\d+)\s*:\s*['"]([^'"]*)['"])");
+    auto it = pattern.globalMatch(text);
+    while (it.hasNext()) {
+        const auto match = it.next();
+        const int index = match.captured(1).toInt();
+        const QString name = match.captured(2);
+        parsed[index] = name;
+    }
+
+    if (parsed.isEmpty()) {
+        return {};
+    }
+
+    QStringList names;
+    names.reserve(parsed.lastKey() + 1);
+    for (int i = 0; i <= parsed.lastKey(); ++i) {
+        names << parsed.value(i, QString("class_%1").arg(i));
+    }
+    return names;
+}
+
+} // namespace
 
 OnnxClassifier::OnnxClassifier() {
 }
@@ -31,6 +72,7 @@ OnnxClassifier::~OnnxClassifier() {
 bool OnnxClassifier::loadModel(const QString &modelPath) {
     m_loaded = false;
     m_session.reset();
+    m_modelClassNames.clear();
 
     try {
         // 创建 ONNX Runtime 运行环境
@@ -78,7 +120,31 @@ bool OnnxClassifier::loadModel(const QString &modelPath) {
         }
 
         qDebug() << "Input shape:" << dims.join(" x ");
-        qDebug() << "Preprocess mode: OpenCV decode -> resize shortest edge -> center crop -> RGB -> [0,1]";
+        qDebug() << "Preprocess mode: OpenCV decode -> short-edge resize -> center crop -> RGB -> [0,1]";
+
+        try {
+            auto metadata = m_session->GetModelMetadata();
+            const QString task = readCustomMetadataValue(metadata, "task");
+            const QString imgsz = readCustomMetadataValue(metadata, "imgsz");
+            const QString names = readCustomMetadataValue(metadata, "names");
+            const QString args = readCustomMetadataValue(metadata, "args");
+
+            if (!task.isEmpty()) {
+                qDebug() << "Metadata task:" << task;
+            }
+            if (!imgsz.isEmpty()) {
+                qDebug() << "Metadata imgsz:" << imgsz;
+            }
+            if (!args.isEmpty()) {
+                qDebug() << "Metadata args:" << args;
+            }
+            if (!names.isEmpty()) {
+                m_modelClassNames = parseNamesFromMetadata(names);
+                qDebug() << "Metadata names parsed:" << m_modelClassNames;
+            }
+        } catch (const std::exception &e) {
+            qWarning() << "Failed to read ONNX metadata:" << e.what();
+        }
 
         m_loaded = true;
         return true;
@@ -94,6 +160,10 @@ bool OnnxClassifier::isLoaded() const {
 
 void OnnxClassifier::setClassNames(const QStringList &names) {
     m_classNames = names;
+}
+
+QStringList OnnxClassifier::modelClassNames() const {
+    return m_modelClassNames;
 }
 
 OnnxClassifier::Result OnnxClassifier::classify(const QString &imagePath) {
@@ -152,8 +222,9 @@ OnnxClassifier::Result OnnxClassifier::classify(const QString &imagePath) {
             }
         }
 
-        QString className = bestIdx < m_classNames.size()
-            ? m_classNames[bestIdx]
+        const QStringList &activeNames = m_classNames.isEmpty() ? m_modelClassNames : m_classNames;
+        QString className = bestIdx < activeNames.size()
+            ? activeNames[bestIdx]
             : QString("class_%1").arg(bestIdx);
 
         result.className = className;
@@ -161,8 +232,8 @@ OnnxClassifier::Result OnnxClassifier::classify(const QString &imagePath) {
 
         // 7. 收集所有类别的得分
         for (int i = 0; i < numClasses; ++i) {
-            QString name = i < m_classNames.size()
-                ? m_classNames[i]
+            QString name = i < activeNames.size()
+                ? activeNames[i]
                 : QString("class_%1").arg(i);
             result.allScores.push_back({name, scores[i]});
         }
@@ -187,21 +258,29 @@ std::vector<float> OnnxClassifier::preprocess(const QString &imagePath) {
         static_cast<float>(m_inputWidth) / static_cast<float>(bgr.cols),
         static_cast<float>(m_inputHeight) / static_cast<float>(bgr.rows)
     );
-    const int resizedWidth = std::max(1, static_cast<int>(std::lround(bgr.cols * scale)));
-    const int resizedHeight = std::max(1, static_cast<int>(std::lround(bgr.rows * scale)));
+    // 对齐 torchvision Resize(int) 的主逻辑：长边采用向下取整，同时保证短边 >= 目标尺寸。
+    const int resizedWidth = std::max(
+        m_inputWidth,
+        static_cast<int>(std::floor(static_cast<float>(bgr.cols) * scale))
+    );
+    const int resizedHeight = std::max(
+        m_inputHeight,
+        static_cast<int>(std::floor(static_cast<float>(bgr.rows) * scale))
+    );
 
     cv::Mat resized;
+    const bool isDownsample = resizedWidth < bgr.cols || resizedHeight < bgr.rows;
     cv::resize(
         bgr,
         resized,
         cv::Size(resizedWidth, resizedHeight),
         0.0,
         0.0,
-        cv::INTER_LINEAR
+        isDownsample ? cv::INTER_AREA : cv::INTER_LINEAR
     );
 
-    const int cropX = std::max(0, (resized.cols - m_inputWidth) / 2);
-    const int cropY = std::max(0, (resized.rows - m_inputHeight) / 2);
+    const int cropX = std::max(0, static_cast<int>(std::lround((resized.cols - m_inputWidth) / 2.0)));
+    const int cropY = std::max(0, static_cast<int>(std::lround((resized.rows - m_inputHeight) / 2.0)));
     const cv::Rect roi(cropX, cropY, m_inputWidth, m_inputHeight);
     cv::Mat cropped = resized(roi);
 
